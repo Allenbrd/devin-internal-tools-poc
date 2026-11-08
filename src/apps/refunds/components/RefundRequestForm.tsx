@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { requestRefund, type RefundActionState } from "../actions";
+import { REASON_CODE_LABELS, REASON_CODE_REQUIRED_FROM, REFUND_REASON_CODES } from "../policy";
 
 interface Props {
   customers: { id: string; name: string }[];
@@ -56,6 +57,21 @@ export function RefundRequestForm({ customers, currencies, thresholdLabel }: Pro
         Reason
         <textarea name="reason" rows={3} className={inputClass} required />
         <FieldError errors={state.errors?.reason} />
+      </label>
+      <label className="block text-sm font-medium text-slate-700">
+        Reason code
+        <select name="reasonCode" defaultValue="" className={inputClass}>
+          <option value="">None</option>
+          {REFUND_REASON_CODES.map((c) => (
+            <option key={c} value={c}>
+              {REASON_CODE_LABELS[c]}
+            </option>
+          ))}
+        </select>
+        <span className="block text-xs font-normal text-slate-500">
+          Required for refunds of {REASON_CODE_REQUIRED_FROM.toLocaleString("en-GB")} or more.
+        </span>
+        <FieldError errors={state.errors?.reasonCode} />
       </label>
       <label className="block text-sm font-medium text-slate-700">
         Destination IBAN

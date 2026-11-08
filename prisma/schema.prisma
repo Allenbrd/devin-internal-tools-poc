@@ -80,6 +80,9 @@ model Refund {
   /// ISO 4217 code, see src/apps/refunds/policy.ts
   currency          String
   reason            String
+  /// Optional below 500, required at 500+: duplicate_charge | not_received | goodwill | fraud
+  /// (see src/apps/refunds/policy.ts). Null on refunds requested without one.
+  reasonCode        String?
   /// Sensitive: masked by default, see src/apps/refunds/sensitive.ts
   destinationIban   String
   /// One of: requested | approved | rejected | paid
@@ -96,6 +99,7 @@ model Refund {
   decisions RefundDecision[]
 
   @@index([status])
+  @@index([reasonCode])
   @@index([requestedById])
 }
 

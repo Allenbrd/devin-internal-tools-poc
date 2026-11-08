@@ -5,7 +5,7 @@ import { MarkPaidForm } from "@/apps/refunds/components/MarkPaidForm";
 import { RefundDecisionForm } from "@/apps/refunds/components/RefundDecisionForm";
 import { StatusBadge } from "@/apps/refunds/components/StatusBadge";
 import { getRefund, getRefundAuditTrail } from "@/apps/refunds/data";
-import { DECISION_BLOCK_MESSAGES, checkDecision, formatAmount } from "@/apps/refunds/policy";
+import { DECISION_BLOCK_MESSAGES, REASON_CODE_LABELS, checkDecision, formatAmount, isReasonCode } from "@/apps/refunds/policy";
 import { refundResource } from "@/apps/refunds/sensitive";
 import { SensitiveValue } from "@/platform/masking/client";
 import { canUnmask } from "@/platform/masking/server";
@@ -42,6 +42,8 @@ export default async function RefundPage({ params }: PageProps<"/apps/refunds/[i
             <dd className="col-span-2">{refund.customer.name}</dd>
             <dt className="text-slate-500">Amount</dt>
             <dd className="col-span-2 font-mono">{formatAmount(refund.amountMinor, refund.currency)}</dd>
+            <dt className="text-slate-500">Reason code</dt>
+            <dd className="col-span-2">{isReasonCode(refund.reasonCode) ? REASON_CODE_LABELS[refund.reasonCode] : "—"}</dd>
             <dt className="text-slate-500">Destination IBAN</dt>
             <dd className="col-span-2">
               <SensitiveValue field={refund.destinationIban} canReveal={canUnmask(user, refundResource, "destinationIban")} />

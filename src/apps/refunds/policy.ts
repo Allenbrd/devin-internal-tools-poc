@@ -8,6 +8,26 @@ export type RefundStatus = (typeof REFUND_STATUSES)[number];
 export const REFUND_CURRENCIES = ["EUR", "GBP", "USD", "CHF"] as const;
 export type RefundCurrency = (typeof REFUND_CURRENCIES)[number];
 
+export const REFUND_REASON_CODES = ["duplicate_charge", "not_received", "goodwill", "fraud"] as const;
+export type RefundReasonCode = (typeof REFUND_REASON_CODES)[number];
+
+export const REASON_CODE_LABELS: Record<RefundReasonCode, string> = {
+  duplicate_charge: "Duplicate charge",
+  not_received: "Not received",
+  goodwill: "Goodwill",
+  fraud: "Fraud",
+};
+
+export const isReasonCode = (v: unknown): v is RefundReasonCode =>
+  typeof v === "string" && (REFUND_REASON_CODES as readonly string[]).includes(v);
+
+/** Amount (major units, any currency) at or above which a reason code is required. Not tied to the approval threshold. */
+export const REASON_CODE_REQUIRED_FROM = 500;
+
+export function reasonCodeRequired(amountMinor: number): boolean {
+  return amountMinor >= REASON_CODE_REQUIRED_FROM * 100;
+}
+
 export const MAX_REFUND_MINOR = 100_000_000; // 1,000,000.00
 
 /** Amount (major units, any currency) at or above which two approvals are needed. */

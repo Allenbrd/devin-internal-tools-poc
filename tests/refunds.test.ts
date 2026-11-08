@@ -2,7 +2,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import RefundsPage from "@/app/(shell)/apps/refunds/page";
 import { decideRefund, markRefundPaid, requestRefund, type RefundActionState } from "@/apps/refunds/actions";
 import { getRefundAuditTrail, listRefunds } from "@/apps/refunds/data";
-import { checkDecision, dualApprovalThresholdMinor, parseAmountToMinor, requiredApprovalsFor } from "@/apps/refunds/policy";
+import {
+  REFUND_REASON_CODES,
+  checkDecision,
+  dualApprovalThresholdMinor,
+  parseAmountToMinor,
+  reasonCodeRequired,
+  requiredApprovalsFor,
+} from "@/apps/refunds/policy";
 import { getAccessibleApps } from "@/platform/apps/access";
 import { db } from "@/platform/db";
 import { isValidIban } from "@/platform/validation/iban";
@@ -19,7 +26,7 @@ async function requestAs(who: keyof typeof USERS, amount: string, extra: Record<
   await signInAs(who);
   const error = await requestRefund(
     initial,
-    form({ customerId: customer.id, amount, currency: "EUR", reason: "Test refund", destinationIban: "GB82 WEST 1234 5698 7654 32", ...extra }),
+    form({ customerId: customer.id, amount, currency: "EUR", reason: "Test refund", reasonCode: "goodwill", destinationIban: "GB82 WEST 1234 5698 7654 32", ...extra }),
   ).catch((e: unknown) => e);
   expect(error).toBeInstanceOf(RedirectError);
   return (error as RedirectError).url.split("/").pop()!;
@@ -46,6 +53,11 @@ describe("refund policy", () => {
     expect(requiredApprovalsFor(50000, 50000)).toBe(2);
     expect(dualApprovalThresholdMinor({ REFUND_DUAL_APPROVAL_THRESHOLD: "1000" })).toBe(100000);
     expect(() => dualApprovalThresholdMinor({ REFUND_DUAL_APPROVAL_THRESHOLD: "lots" })).toThrow(/Invalid/);
+  });
+
+  it("requires a reason code at or above 500, regardless of the approval threshold", () => {
+    expect(reasonCodeRequired(49999)).toBe(false);
+    expect(reasonCodeRequired(50000)).toBe(true);
   });
 
   it("blocks self-approval, double decisions and decisions on closed refunds", () => {
@@ -119,6 +131,59 @@ describe("refund request", () => {
     expect(Object.keys(result.errors ?? {}).sort()).toEqual(["amount", "currency", "destinationIban", "reason"]);
     expect(await db.refund.count()).toBe(refunds);
     expect(await db.auditEvent.count()).toBe(events);
+  });
+
+  it("requires a reason code at 500 and above, and writes nothing without one", async () => {
+    await signInAs("operator");
+    const customer = await anyCustomer();
+    const [refunds, events] = [await db.refund.count(), await db.auditEvent.count()];
+    for (const amount of ["500", "1250"]) {
+      const result = await requestRefund(initial, form({ customerId: customer.id, amount, currency: "EUR", reason: "Test refund", destinationIban: IBAN }));
+      expect(result.errors).toEqual({ reasonCode: ["Choose a reason code for refunds of 500 or more"] });
+    }
+    expect(await db.refund.count()).toBe(refunds);
+    expect(await db.auditEvent.count()).toBe(events);
+  });
+
+  it("makes the reason code optional below 500", async () => {
+    const id = await requestAs("operator", "499.99", { reasonCode: "" });
+    expect((await refund(id)).reasonCode).toBeNull();
+    const event = (await lastAuditEvent({ action: "refund.request", resourceId: id }))!;
+    expect(JSON.parse(event.after!)).toMatchObject({ reasonCode: null });
+  });
+
+  it.each(REFUND_REASON_CODES)("stores and audits reason code %s", async (code) => {
+    const id = await requestAs("operator", "750", { reasonCode: code });
+    expect((await refund(id)).reasonCode).toBe(code);
+    const event = (await lastAuditEvent({ action: "refund.request", resourceId: id }))!;
+    expect(JSON.parse(event.after!)).toMatchObject({ reasonCode: code });
+  });
+
+  it("rejects unknown reason codes at any amount", async () => {
+    await signInAs("operator");
+    const customer = await anyCustomer();
+    for (const amount of ["20", "750"]) {
+      const result = await requestRefund(
+        initial,
+        form({ customerId: customer.id, amount, currency: "EUR", reason: "Test refund", reasonCode: "chargeback", destinationIban: IBAN }),
+      );
+      expect(Object.keys(result.errors ?? {})).toEqual(["reasonCode"]);
+    }
+  });
+
+  it("filters the list by reason code (and 'none'), combined with status", async () => {
+    const approver = await signInAs("approver");
+    for (const code of REFUND_REASON_CODES) {
+      const rows = await listRefunds(approver, { reasonCode: code });
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((r) => r.reasonCode === code)).toBe(true);
+    }
+    const uncoded = await listRefunds(approver, { reasonCode: "none" });
+    expect(uncoded.length).toBeGreaterThan(0);
+    expect(uncoded.every((r) => r.reasonCode === null)).toBe(true);
+    const paidDuplicates = await listRefunds(approver, { status: "paid", reasonCode: "duplicate_charge" });
+    expect(paidDuplicates.map((r) => r.id)).toContain("seed-refund-07");
+    expect(paidDuplicates.every((r) => r.status === "paid" && r.reasonCode === "duplicate_charge")).toBe(true);
   });
 
   it("lists refunds with the IBAN masked", async () => {
@@ -263,8 +328,10 @@ describe("refund seed data", () => {
     expect(seeded).toHaveLength(SEED_REFUNDS.length);
     expect(new Set(seeded.map((r) => r.status))).toEqual(new Set(["requested", "approved", "rejected", "paid"]));
     expect(new Set(seeded.map((r) => r.requiredApprovals))).toEqual(new Set([1, 2]));
+    expect(new Set(seeded.map((r) => r.reasonCode))).toEqual(new Set([...REFUND_REASON_CODES, null]));
     for (const r of seeded) {
       expect(isValidIban(r.destinationIban)).toBe(true);
+      if (reasonCodeRequired(r.amountMinor)) expect(r.reasonCode).not.toBeNull();
       expect(r.decisions.map((d) => d.approverId)).not.toContain(r.requestedById);
       const approvals = r.decisions.filter((d) => d.decision === "approve").length;
       const rejected = r.decisions.some((d) => d.decision === "reject");
