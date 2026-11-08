@@ -113,3 +113,44 @@ model RefundDecision {
 
   @@unique([refundId, approverId])
 }
+
+/// Feature-flag admin: one row per flag key per environment.
+model FeatureFlag {
+  id             String              @id @default(cuid())
+  key            String
+  description    String
+  /// One of: dev | staging | prod (validated in src/apps/flags/data.ts).
+  environment    String
+  enabled        Boolean             @default(false)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  changeRequests FlagChangeRequest[]
+
+  @@unique([key, environment])
+}
+
+/// A requested toggle of a flag in an approval-gated environment (prod).
+/// The flag only changes when an approver other than the requester approves.
+model FlagChangeRequest {
+  id               String      @id @default(cuid())
+  flagId           String
+  flag             FeatureFlag @relation(fields: [flagId], references: [id])
+  /// Target state, applied on approval.
+  enabled          Boolean
+  reason           String
+  /// One of: pending | approved | rejected.
+  status           String      @default("pending")
+  /// Equals flagId while pending, null once decided: at most one pending request per flag
+  /// (portable alternative to a partial unique index; NULLs never collide).
+  pendingFlagId    String?     @unique
+  requestedById    String
+  requestedByEmail String
+  decidedById      String?
+  decidedByEmail   String?
+  decidedAt        DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  @@index([flagId, createdAt])
+  @@index([status])
+}

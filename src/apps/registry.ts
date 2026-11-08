@@ -7,7 +7,8 @@ import { customersApp } from "./customers/manifest";
 import { customerResource } from "./customers/sensitive";
 import { refundsApp } from "./refunds/manifest";
 import { refundResource } from "./refunds/sensitive";
+import { flagsApp } from "./flags/manifest";
 
-export const apps = [customersApp, refundsApp] as const;
+export const apps = [customersApp, refundsApp, flagsApp] as const;
 
 export const sensitiveResources = [customerResource, refundResource] as const;

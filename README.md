@@ -13,12 +13,12 @@ npm install && npm run db:setup && npm run dev
 
 Open http://localhost:3000 and pick a seeded user:
 
-| User | Role | Customer Directory | Refunds | Audit log |
-| --- | --- | --- | --- | --- |
-| Vera Viewer | viewer | read (masked) | – | – |
-| Oscar Operator | operator | read + edit | request, mark paid | – |
-| April Approver | approver | read + reveal IBAN | approve/reject, reveal IBAN | – |
-| Adam Admin | admin | everything | everything (never their own requests) | browse |
+| User | Role | Customer Directory | Refunds | Feature Flags | Audit log |
+| --- | --- | --- | --- | --- | --- |
+| Vera Viewer | viewer | read (masked) | – | read | – |
+| Oscar Operator | operator | read + edit | request, mark paid | toggle dev/staging, request prod | – |
+| April Approver | approver | read + reveal IBAN | approve/reject, reveal IBAN | approve/reject prod | – |
+| Adam Admin | admin | everything | everything (never their own requests) | everything (never their own requests) | browse |
 
 Node `^20.19.0 || >=22.12.0` is required (Vite 7 / Vitest; `.nvmrc` pins 24, CI also tests 22). `db:setup` creates `.env` from `.env.example` if missing,
 syncs the schema, installs the append-only audit triggers and seeds data. `npm run db:reset` wipes and re-seeds.
@@ -44,6 +44,7 @@ src/
     registry.ts        THE place apps are registered
     customers/         sample app: manifest, sensitive fields, data access, server actions, components
     refunds/           refund requests with four-eyes approval (rules in policy.ts)
+    flags/             feature-flag admin: dev/staging toggles, approval-gated prod toggles
   app/                 Next routes
     (shell)/           everything behind sign-in, wrapped in the AppShell
     sign-in/ forbidden/ public pages
@@ -114,6 +115,17 @@ export const customerResource = defineSensitiveResource({
   needed is fixed when the refund is requested. One rejection rejects.
 - Every state change (and every blocked four-eyes attempt) is audited with before/after; the detail page
   shows the refund's `refund.*` audit trail. The destination IBAN is masked everywhere, including the log.
+
+### Feature Flags
+
+- A flag is one row per `key` + `environment` (`dev`, `staging`, `prod`) with a description and on/off state.
+- Operators toggle `dev` and `staging` directly (`flag.toggle`). `prod` (`APPROVAL_REQUIRED_ENVIRONMENTS` in
+  `src/apps/flags/data.ts`) is never toggled directly: an operator requests the change with a reason
+  (`flag.toggle_request`) and it is applied only when an approver other than the requester approves it
+  (`flag.toggle_approve`) or dropped when rejected (`flag.toggle_reject`). One pending request per flag
+  (also a unique key on `FlagChangeRequest.pendingFlagId`).
+- Every toggle, request and decision, and every refused attempt (direct prod toggle, self-approval), is
+  audited with before/after; the flag page shows its `flag.*` history.
 
 ## Adding a new app
 
