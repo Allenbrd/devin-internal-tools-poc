@@ -47,6 +47,30 @@ export const SEED_REFUNDS: SeedRefund[] = [
   { id: "seed-refund-10", customer: "pagos@adventure-works.example", amountMinor: 98000, currency: "EUR", reason: "Early termination refund", destinationIban: "IT60X0542811101000000123456", status: "rejected", requestedBy: "mock|oscar", decisions: [{ by: "mock|april", decision: "approve" }, { by: "mock|adam", decision: "reject", note: "Contract has no early-termination clause" }] },
 ];
 
+export const SEED_FLAGS = [
+  { key: "new-checkout", description: "Single-page checkout flow", environment: "dev", enabled: true },
+  { key: "new-checkout", description: "Single-page checkout flow", environment: "staging", enabled: true },
+  { key: "new-checkout", description: "Single-page checkout flow", environment: "prod", enabled: false },
+  { key: "dark-mode", description: "Dark theme for the customer portal", environment: "dev", enabled: true },
+  { key: "dark-mode", description: "Dark theme for the customer portal", environment: "staging", enabled: false },
+  { key: "dark-mode", description: "Dark theme for the customer portal", environment: "prod", enabled: false },
+  { key: "search-v2", description: "New search ranking service", environment: "dev", enabled: true },
+  { key: "search-v2", description: "New search ranking service", environment: "staging", enabled: true },
+  { key: "search-v2", description: "New search ranking service", environment: "prod", enabled: true },
+  { key: "legacy-csv-export", description: "Old CSV export endpoint (being retired)", environment: "dev", enabled: false },
+  { key: "legacy-csv-export", description: "Old CSV export endpoint (being retired)", environment: "staging", enabled: false },
+  { key: "legacy-csv-export", description: "Old CSV export endpoint (being retired)", environment: "prod", enabled: true },
+] as const;
+
+/** A prod toggle waiting for an approver, so the approval flow can be tried right away. */
+export const SEED_PENDING_REQUEST = {
+  key: "new-checkout",
+  environment: "prod",
+  enabled: true,
+  reason: "Staging soak finished, rolling out to prod",
+  requestedBy: "mock|oscar",
+} as const;
+
 export async function seed(client = new PrismaClient()) {
   try {
     for (const user of SEED_USERS) {
@@ -82,7 +106,36 @@ export async function seed(client = new PrismaClient()) {
         },
       });
     }
-    console.log(`Seeded ${SEED_USERS.length} users, ${SEED_CUSTOMERS.length} customers and ${SEED_REFUNDS.length} refunds.`);
+    for (const flag of SEED_FLAGS) {
+      await client.featureFlag.upsert({
+        where: { key_environment: { key: flag.key, environment: flag.environment } },
+        update: {},
+        create: flag,
+      });
+    }
+    const pending = SEED_PENDING_REQUEST;
+    const pendingFlag = await client.featureFlag.findUniqueOrThrow({
+      where: { key_environment: { key: pending.key, environment: pending.environment } },
+      include: { _count: { select: { changeRequests: true } } },
+    });
+    // Only on a flag with no history, so re-seeding never re-opens a decided request.
+    if (pendingFlag._count.changeRequests === 0 && pendingFlag.enabled !== pending.enabled) {
+      const requester = await client.user.findUniqueOrThrow({ where: { externalId: pending.requestedBy } });
+      await client.flagChangeRequest.create({
+        data: {
+          flagId: pendingFlag.id,
+          enabled: pending.enabled,
+          reason: pending.reason,
+          status: "pending",
+          pendingFlagId: pendingFlag.id,
+          requestedById: requester.id,
+          requestedByEmail: requester.email,
+        },
+      });
+    }
+    console.log(
+      `Seeded ${SEED_USERS.length} users, ${SEED_CUSTOMERS.length} customers, ${SEED_REFUNDS.length} refunds and ${SEED_FLAGS.length} feature flags.`,
+    );
   } finally {
     await client.$disconnect();
   }
