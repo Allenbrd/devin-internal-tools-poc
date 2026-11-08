@@ -24,6 +24,9 @@ model User {
   active     Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+
+  refundsRequested Refund[]
+  refundDecisions  RefundDecision[]
 }
 
 /// Append-only audit trail. Never updated or deleted: guarded in the Prisma
@@ -63,4 +66,50 @@ model Customer {
   status    String   @default("active")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  refunds Refund[]
+}
+
+/// Refunds app. Amounts are integer minor units (cents) to avoid float/decimal
+/// portability issues; all supported currencies have 2 decimals.
+model Refund {
+  id                String   @id @default(cuid())
+  customerId        String
+  customer          Customer @relation(fields: [customerId], references: [id])
+  amountMinor       Int
+  /// ISO 4217 code, see src/apps/refunds/policy.ts
+  currency          String
+  reason            String
+  /// Sensitive: masked by default, see src/apps/refunds/sensitive.ts
+  destinationIban   String
+  /// One of: requested | approved | rejected | paid
+  status            String   @default("requested")
+  /// Approvals needed, fixed when the refund is requested (four-eyes threshold).
+  requiredApprovals Int
+  requestedById     String
+  requestedBy       User     @relation(fields: [requestedById], references: [id])
+  /// Optimistic concurrency token; bumped on every state change.
+  version           Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  decisions RefundDecision[]
+
+  @@index([status])
+  @@index([requestedById])
+}
+
+/// One approve/reject decision per approver per refund (enforced by the unique key).
+model RefundDecision {
+  id         String   @id @default(cuid())
+  refundId   String
+  refund     Refund   @relation(fields: [refundId], references: [id])
+  approverId String
+  approver   User     @relation(fields: [approverId], references: [id])
+  /// "approve" | "reject"
+  decision   String
+  note       String?
+  createdAt  DateTime @default(now())
+
+  @@unique([refundId, approverId])
 }

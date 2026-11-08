@@ -13,12 +13,12 @@ npm install && npm run db:setup && npm run dev
 
 Open http://localhost:3000 and pick a seeded user:
 
-| User | Role | Customer Directory | Audit log |
-| --- | --- | --- | --- |
-| Vera Viewer | viewer | read (masked) | – |
-| Oscar Operator | operator | read + edit | – |
-| April Approver | approver | read + reveal IBAN | – |
-| Adam Admin | admin | everything | browse |
+| User | Role | Customer Directory | Refunds | Audit log |
+| --- | --- | --- | --- | --- |
+| Vera Viewer | viewer | read (masked) | – | – |
+| Oscar Operator | operator | read + edit | request, mark paid | – |
+| April Approver | approver | read + reveal IBAN | approve/reject, reveal IBAN | – |
+| Adam Admin | admin | everything | everything (never their own requests) | browse |
 
 Node `^20.19.0 || >=22.12.0` is required (Vite 7 / Vitest; `.nvmrc` pins 24, CI also tests 22). `db:setup` creates `.env` from `.env.example` if missing,
 syncs the schema, installs the append-only audit triggers and seeds data. `npm run db:reset` wipes and re-seeds.
@@ -43,6 +43,7 @@ src/
   apps/
     registry.ts        THE place apps are registered
     customers/         sample app: manifest, sensitive fields, data access, server actions, components
+    refunds/           refund requests with four-eyes approval (rules in policy.ts)
   app/                 Next routes
     (shell)/           everything behind sign-in, wrapped in the AppShell
     sign-in/ forbidden/ public pages
@@ -102,6 +103,17 @@ export const customerResource = defineSensitiveResource({
 - `<SensitiveValue>` shows the masked value and, if the user may unmask, a Reveal button that calls the
   `revealSensitiveField` server action: it checks the field's `unmaskPermission`, loads the plaintext,
   writes `sensitive.unmask` (without the value), and returns it. The UI re-masks after 30 s.
+
+### Refunds
+
+- Operators request a refund (customer, amount, currency, reason, destination IBAN). Approvers approve or
+  reject it; operators mark approved refunds as paid. Status: `requested → approved | rejected`, `approved → paid`.
+- Four-eyes (`src/apps/refunds/policy.ts`): nobody decides on their own request, each approver decides at
+  most once (also a unique key on `RefundDecision`), and refunds at or above
+  `REFUND_DUAL_APPROVAL_THRESHOLD` (default 500, any currency) need two approvals. The number of approvals
+  needed is fixed when the refund is requested. One rejection rejects.
+- Every state change (and every blocked four-eyes attempt) is audited with before/after; the detail page
+  shows the refund's `refund.*` audit trail. The destination IBAN is masked everywhere, including the log.
 
 ## Adding a new app
 
