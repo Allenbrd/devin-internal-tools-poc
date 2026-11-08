@@ -1,24 +1,68 @@
 # Internal Tools Platform
 
-A host for small internal apps (refunds dashboard, feature-flag admin, KYC review, ...) built on a
-shared platform layer: auth, permissions, audit, field masking and the app shell.
+A prototype platform for building small internal apps, built with Devin as an alternative to
+Microsoft Power Apps. Apps share one platform layer for sign-in, permissions, an append-only audit log
+and masking of sensitive fields, so each new app only contains its own screens and business rules.
 
-**Stack:** Next.js 16 (App Router, TypeScript) · Prisma (SQLite locally, Postgres-compatible schema) · Tailwind 4 · Vitest
+This is a prototype: sign-in is mocked, it runs locally on SQLite, and nothing is deployed.
+How it was built: [docs/build-log.md](docs/build-log.md).
 
-## Quick start
+## Run it
+
+Needs Node 22+ (22.12 or later).
 
 ```bash
 npm install && npm run db:setup && npm run dev
 ```
 
-Open http://localhost:3000 and pick a seeded user:
+Open http://localhost:3000 and pick a seeded user. `npm run db:reset` wipes the database and re-seeds it.
+
+## Seeded users
 
 | User | Role | Customer Directory | Refunds | Feature Flags | Audit log |
 | --- | --- | --- | --- | --- | --- |
-| Vera Viewer | viewer | read (masked) | – | read | – |
-| Oscar Operator | operator | read + edit | request, mark paid | toggle dev/staging, request prod | – |
-| April Approver | approver | read + reveal IBAN | approve/reject, reveal IBAN | approve/reject prod | – |
-| Adam Admin | admin | everything | everything (never their own requests) | everything (never their own requests) | browse |
+| Vera Viewer | viewer | read (IBANs masked) | no access | read | no access |
+| Oscar Operator | operator | read, edit | request, mark paid | toggle dev/staging, request prod changes | no access |
+| April Approver | approver | read, reveal IBAN | approve/reject, reveal IBAN | approve/reject prod changes | no access |
+| Adam Admin | admin | everything | everything (never on their own requests) | everything (never on their own requests) | browse |
+
+## The apps
+
+- **Customer Directory**: sample app showing the platform pattern: a list, an edit form, and an IBAN that
+  only some roles can reveal.
+- **Refunds**: operators request refunds, approvers decide. Four-eyes approval: nobody approves their own
+  request, and refunds of 500 or more need two different approvers. A reason code is required at 500 or more.
+- **Feature Flags**: flags per environment. Operators toggle dev and staging directly; a prod change has to
+  be requested and then approved by someone else.
+
+Every change, and every refused attempt, is written to the audit log, which admins can browse.
+
+## Adding an app
+
+A new app is a manifest (name, permissions and which roles get them) registered in one file, plus its own
+pages, data model and actions. Navigation, permission checks, audit and masking come from the platform.
+Full procedure: [docs/playbooks/new-internal-app.md](docs/playbooks/new-internal-app.md). Short version:
+[Adding a new app](#adding-a-new-app) below.
+
+## Not built
+
+- Real single sign-on with Entra ID (sign-in is mocked; the provider is swappable, see [Auth](#auth-replaceable-with-entra-id))
+- Deployment
+- KYC review app
+- Migration of existing Power Apps
+- Ops staff editing their own forms without a developer
+- Record-level permissions (access is per role and app, not per record)
+
+## Known issues
+
+- The audit log scrubber masks any run of 13+ digits (13–19, spaces or dashes allowed) as a possible card number,
+  including values that aren't card numbers (IDs, millisecond timestamps). Applies to all audit payloads.
+
+---
+
+## Technical detail
+
+**Stack:** Next.js 16 (App Router, TypeScript) · Prisma (SQLite locally, Postgres-compatible schema) · Tailwind 4 · Vitest
 
 Node `^20.19.0 || >=22.12.0` is required (Vite 7 / Vitest; `.nvmrc` pins 24, CI also tests 22). `db:setup` creates `.env` from `.env.example` if missing,
 syncs the schema, installs the append-only audit triggers and seeds data. `npm run db:reset` wipes and re-seeds.
@@ -28,7 +72,7 @@ syncs the schema, installs the append-only audit triggers and seeds data. `npm r
 | `npm run lint` / `typecheck` / `test` / `build` | what CI runs |
 | `npm run db:studio` | browse the local DB |
 
-## Structure
+### Structure
 
 ```
 src/
@@ -54,7 +98,7 @@ prisma/                schema, seed, append-only SQL triggers (sqlite + postgres
 tests/                 Vitest suites (run against SQLite locally, SQLite + Postgres in CI)
 ```
 
-### Auth (replaceable with Entra ID)
+#### Auth (replaceable with Entra ID)
 
 Apps never see the provider. They only call `getCurrentUser()` / `requirePermission()` from
 `@/platform/auth` and `@/platform/permissions`, and receive a provider-agnostic `Principal`
@@ -65,7 +109,7 @@ and register it. No app code changes.
 
 Mock SSO refuses to run with `NODE_ENV=production` unless `ALLOW_MOCK_AUTH=true`.
 
-### Permissions
+#### Permissions
 
 - Each app manifest declares its permissions and which roles get them. The policy is the union of all
   manifests; anything not declared is denied, as are unknown roles, missing/invalid/expired sessions and
@@ -76,7 +120,7 @@ Mock SSO refuses to run with `NODE_ENV=production` unless `ALLOW_MOCK_AUTH=true`
 - `tests/guard-coverage.test.ts` statically fails CI if any page/layout/route/`"use server"` export
   doesn't call `requirePermission()` (public pages are an explicit, reasoned allowlist).
 
-### Audit log
+#### Audit log
 
 - `AuditEvent` is append-only: no update/delete code path, a Prisma client extension that rejects
   update/upsert/delete on the model, and DB triggers (SQLite and Postgres) that reject UPDATE/DELETE
@@ -87,7 +131,7 @@ Mock SSO refuses to run with `NODE_ENV=production` unless `ALLOW_MOCK_AUTH=true`
   pattern scrubber is a safety net for anything else. Plaintext sensitive values are never stored.
 - Admins browse it at `/admin/audit` (filters + pagination). Browsing the log is itself audited.
 
-### Field masking
+#### Field masking
 
 ```ts
 // src/apps/customers/sensitive.ts
@@ -105,7 +149,7 @@ export const customerResource = defineSensitiveResource({
   `revealSensitiveField` server action: it checks the field's `unmaskPermission`, loads the plaintext,
   writes `sensitive.unmask` (without the value), and returns it. The UI re-masks after 30 s.
 
-### Refunds
+#### Refunds
 
 - Operators request a refund (customer, amount, currency, reason, destination IBAN). Approvers approve or
   reject it; operators mark approved refunds as paid. Status: `requested → approved | rejected`, `approved → paid`.
@@ -113,10 +157,13 @@ export const customerResource = defineSensitiveResource({
   most once (also a unique key on `RefundDecision`), and refunds at or above
   `REFUND_DUAL_APPROVAL_THRESHOLD` (default 500, any currency) need two approvals. The number of approvals
   needed is fixed when the refund is requested. One rejection rejects.
+- Reason codes (`REFUND_REASON_CODES` in `src/apps/refunds/policy.ts`): `duplicate_charge`, `not_received`,
+  `goodwill`, `fraud`. Optional below `REASON_CODE_REQUIRED_FROM` (500, any currency), required at or above it;
+  independent of the approval threshold. The list has a reason-code column and filter (including "none").
 - Every state change (and every blocked four-eyes attempt) is audited with before/after; the detail page
   shows the refund's `refund.*` audit trail. The destination IBAN is masked everywhere, including the log.
 
-### Feature Flags
+#### Feature Flags
 
 - A flag is one row per `key` + `environment` (`dev`, `staging`, `prod`) with a description and on/off state.
 - Operators toggle `dev` and `staging` directly (`flag.toggle`). `prod` (`APPROVAL_REQUIRED_ENVIRONMENTS` in
@@ -127,7 +174,7 @@ export const customerResource = defineSensitiveResource({
 - Every toggle, request and decision, and every refused attempt (direct prod toggle, self-approval), is
   audited with before/after; the flag page shows its `flag.*` history.
 
-## Adding a new app
+### Adding a new app
 
 1. **Manifest** — `src/apps/<app>/manifest.ts`:
    ```ts
