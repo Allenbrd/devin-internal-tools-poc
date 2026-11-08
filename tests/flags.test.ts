@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import FlagPage from "@/app/(shell)/apps/flags/[id]/page";
 import FlagsPage from "@/app/(shell)/apps/flags/page";
@@ -10,9 +11,10 @@ import { form, lastAuditEvent, signInAs } from "./support/helpers";
 import { RedirectError } from "./support/next";
 
 let counter = 0;
+// Short keys: long digit runs (e.g. Date.now()) look like card numbers to the audit scrubber.
 function makeFlag(environment: "dev" | "staging" | "prod", enabled = false) {
   return db.featureFlag.create({
-    data: { key: `test-flag-${Date.now()}-${counter++}`, description: "Test flag", environment, enabled },
+    data: { key: `test-flag-${counter++}-${randomUUID().slice(0, 8)}`, description: "Test flag", environment, enabled },
   });
 }
 
