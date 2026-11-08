@@ -1,0 +1,66 @@
+// Local development uses SQLite; production targets Postgres.
+// Keep this schema portable: no enums, no native type attributes (@db.*),
+// no provider-specific defaults. CI validates it against Postgres.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// Platform user. `externalId` is the identity-provider subject
+/// (mock: the seed key; Entra ID: the `oid` claim).
+model User {
+  id         String   @id @default(cuid())
+  externalId String   @unique
+  email      String   @unique
+  name       String
+  /// One of: viewer | operator | approver | admin. Stored as text (not an enum)
+  /// for portability; unknown values are denied everything at runtime.
+  role       String
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+/// Append-only audit trail. Never updated or deleted: guarded in the Prisma
+/// client (src/platform/db) and by database triggers (prisma/sql/*).
+/// Actor fields are denormalised on purpose so events survive user changes.
+model AuditEvent {
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+  actorId      String?
+  actorEmail   String
+  actorRole    String
+  /// Dotted verb, e.g. "customer.update", "sensitive.unmask", "access.denied".
+  action       String
+  /// "success" | "denied"
+  outcome      String
+  resourceType String?
+  resourceId   String?
+  /// JSON snapshots with sensitive fields masked. Stored as text for portability.
+  before       String?
+  after        String?
+  /// JSON object with extra context (permission checked, fields read, ...).
+  metadata     String?
+
+  @@index([createdAt])
+  @@index([actorId])
+  @@index([action])
+  @@index([resourceType, resourceId])
+}
+
+/// Sample app data (Customer Directory).
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  /// Sensitive: masked by default, see src/apps/customers/sensitive.ts
+  iban      String
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
