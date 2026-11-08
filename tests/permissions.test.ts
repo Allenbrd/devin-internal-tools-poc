@@ -33,6 +33,11 @@ describe("hasPermission: deny by default", () => {
       "customers:read": ["admin", "approver", "operator", "viewer"],
       "customers:update": ["admin", "operator"],
       "customers:unmask_iban": ["admin", "approver"],
+      "refunds:read": ["admin", "approver", "operator"],
+      "refunds:create": ["admin", "operator"],
+      "refunds:approve": ["admin", "approver"],
+      "refunds:pay": ["admin", "operator"],
+      "refunds:unmask_iban": ["admin", "approver"],
     });
   });
 });
@@ -62,8 +67,9 @@ describe("app shell navigation", () => {
 
   it("only lists apps the user can access", () => {
     expect(names("viewer")).toEqual(["Customer Directory"]);
-    expect(names("operator")).toEqual(["Customer Directory"]);
-    expect(names("admin")).toEqual(["Customer Directory", "Audit log"]);
+    expect(names("operator")).toEqual(["Customer Directory", "Refunds"]);
+    expect(names("approver")).toEqual(["Customer Directory", "Refunds"]);
+    expect(names("admin")).toEqual(["Customer Directory", "Refunds", "Audit log"]);
     expect(names("unknown")).toEqual([]);
     expect(getAccessibleApps(null)).toEqual([]);
   });

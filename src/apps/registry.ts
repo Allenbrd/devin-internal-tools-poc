@@ -5,7 +5,9 @@
  */
 import { customersApp } from "./customers/manifest";
 import { customerResource } from "./customers/sensitive";
+import { refundsApp } from "./refunds/manifest";
+import { refundResource } from "./refunds/sensitive";
 
-export const apps = [customersApp] as const;
+export const apps = [customersApp, refundsApp] as const;
 
-export const sensitiveResources = [customerResource] as const;
+export const sensitiveResources = [customerResource, refundResource] as const;
