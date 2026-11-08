@@ -20,7 +20,7 @@ Open http://localhost:3000 and pick a seeded user:
 | April Approver | approver | read + reveal IBAN | – |
 | Adam Admin | admin | everything | browse |
 
-Node 20.9+ is required (`.nvmrc` pins 24). `db:setup` creates `.env` from `.env.example` if missing,
+Node `^20.19.0 || >=22.12.0` is required (Vite 7 / Vitest; `.nvmrc` pins 24, CI also tests 22). `db:setup` creates `.env` from `.env.example` if missing,
 syncs the schema, installs the append-only audit triggers and seeds data. `npm run db:reset` wipes and re-seeds.
 
 | Script | |
