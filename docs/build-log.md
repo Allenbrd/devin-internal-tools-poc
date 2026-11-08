@@ -11,7 +11,7 @@
 | 5 | Ops change request: refund reason codes | 16:40 | 16:47 | 16:48 | 8 min | 0 | +191 / -39, 9 files |
 | 6 | README rewrite | 16:49 | 16:51 | 16:52 | 3 min | 0 | README only |
 
-Sessions 2 and 3 ran in parallel, then 4 and 5. Everything was merged by 16:52, 68 minutes in. Each PR was reviewed and had green CI before merge: lint, type check, build, tests on SQLite and Postgres with Node 22 and 24, plus a fresh-clone setup check.
+Sessions 2 and 3 ran in parallel, then 4 and 5. Everything was merged by 16:52, 68 minutes in. Each PR was reviewed and had green CI before merge: lint, type check, build, tests on SQLite and Postgres with Node 22 and 24, plus a fresh-clone setup check. I spent about 20 minutes in total reviewing the PRs, focused on permissions, audit, approval logic and tests.
 
 ## The one follow-up
 
