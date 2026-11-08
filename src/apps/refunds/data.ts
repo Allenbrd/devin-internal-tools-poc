@@ -3,13 +3,22 @@ import { listAuditEvents } from "@/platform/audit";
 import type { Principal } from "@/platform/auth";
 import { db } from "@/platform/db";
 import { readMasked, readMaskedList } from "@/platform/masking/server";
-import type { RefundStatus } from "./policy";
+import type { RefundReasonCode, RefundStatus } from "./policy";
 import { refundInclude, refundResource } from "./sensitive";
 
+export interface RefundFilters {
+  status?: RefundStatus;
+  /** "none" matches refunds without a reason code. */
+  reasonCode?: RefundReasonCode | "none";
+}
+
 /** Refunds (newest first) with the destination IBAN masked; audited as a sensitive read. */
-export async function listRefunds(actor: Principal, status?: RefundStatus) {
+export async function listRefunds(actor: Principal, { status, reasonCode }: RefundFilters = {}) {
   const refunds = await db.refund.findMany({
-    where: status ? { status } : {},
+    where: {
+      ...(status && { status }),
+      ...(reasonCode && { reasonCode: reasonCode === "none" ? null : reasonCode }),
+    },
     include: refundInclude,
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   });

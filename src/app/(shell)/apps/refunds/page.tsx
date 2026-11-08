@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { StatusBadge } from "@/apps/refunds/components/StatusBadge";
-import { listRefunds } from "@/apps/refunds/data";
-import { REFUND_STATUSES, formatAmount, type RefundStatus } from "@/apps/refunds/policy";
+import { listRefunds, type RefundFilters } from "@/apps/refunds/data";
+import { REASON_CODE_LABELS, REFUND_REASON_CODES, REFUND_STATUSES, formatAmount, isReasonCode, type RefundStatus } from "@/apps/refunds/policy";
 import { refundResource } from "@/apps/refunds/sensitive";
 import { SensitiveValue } from "@/platform/masking/client";
 import { canUnmask } from "@/platform/masking/server";
@@ -12,10 +12,16 @@ const isStatus = (v: unknown): v is RefundStatus => typeof v === "string" && (RE
 
 export default async function RefundsPage({ searchParams }: PageProps<"/apps/refunds">) {
   const user = await requirePermission("refunds:read");
-  const { status: rawStatus } = await searchParams;
+  const { status: rawStatus, reasonCode: rawReasonCode } = await searchParams;
   const status = isStatus(rawStatus) ? rawStatus : undefined;
-  const refunds = await listRefunds(user, status);
+  const reasonCode = isReasonCode(rawReasonCode) || rawReasonCode === "none" ? rawReasonCode : undefined;
+  const refunds = await listRefunds(user, { status, reasonCode });
   const canRevealIban = canUnmask(user, refundResource, "destinationIban");
+
+  const filterHref = (filters: RefundFilters) => {
+    const query = new URLSearchParams(Object.entries(filters).filter((e): e is [string, string] => !!e[1])).toString();
+    return query ? `/apps/refunds?${query}` : "/apps/refunds";
+  };
 
   const filterClass = (active: boolean) =>
     `rounded px-2 py-1 ${active ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`;
@@ -29,15 +35,28 @@ export default async function RefundsPage({ searchParams }: PageProps<"/apps/ref
           </Link>
         )}
       </PageHeader>
-      <nav aria-label="Filter by status" className="mb-4 flex gap-2 text-sm">
-        <Link href="/apps/refunds" className={filterClass(!status)}>
+      <nav aria-label="Filter by status" className="mb-2 flex gap-2 text-sm">
+        <Link href={filterHref({ reasonCode })} className={filterClass(!status)}>
           All
         </Link>
         {REFUND_STATUSES.map((s) => (
-          <Link key={s} href={`/apps/refunds?status=${s}`} className={`capitalize ${filterClass(status === s)}`}>
+          <Link key={s} href={filterHref({ status: s, reasonCode })} className={`capitalize ${filterClass(status === s)}`}>
             {s}
           </Link>
         ))}
+      </nav>
+      <nav aria-label="Filter by reason code" className="mb-4 flex gap-2 text-sm">
+        <Link href={filterHref({ status })} className={filterClass(!reasonCode)}>
+          All reasons
+        </Link>
+        {REFUND_REASON_CODES.map((c) => (
+          <Link key={c} href={filterHref({ status, reasonCode: c })} className={filterClass(reasonCode === c)}>
+            {REASON_CODE_LABELS[c]}
+          </Link>
+        ))}
+        <Link href={filterHref({ status, reasonCode: "none" })} className={filterClass(reasonCode === "none")}>
+          No reason code
+        </Link>
       </nav>
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
         <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -45,6 +64,7 @@ export default async function RefundsPage({ searchParams }: PageProps<"/apps/ref
             <tr>
               <th className="px-4 py-2">Customer</th>
               <th className="px-4 py-2 text-right">Amount</th>
+              <th className="px-4 py-2">Reason code</th>
               <th className="px-4 py-2">Status</th>
               <th className="px-4 py-2">Approvals</th>
               <th className="px-4 py-2">Destination IBAN</th>
@@ -61,6 +81,7 @@ export default async function RefundsPage({ searchParams }: PageProps<"/apps/ref
                   </Link>
                 </td>
                 <td className="whitespace-nowrap px-4 py-2 text-right font-mono">{formatAmount(r.amountMinor, r.currency)}</td>
+                <td className="whitespace-nowrap px-4 py-2 text-slate-600">{isReasonCode(r.reasonCode) ? REASON_CODE_LABELS[r.reasonCode] : "—"}</td>
                 <td className="px-4 py-2">
                   <StatusBadge status={r.status} />
                 </td>
@@ -76,7 +97,7 @@ export default async function RefundsPage({ searchParams }: PageProps<"/apps/ref
             ))}
             {refunds.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
+                <td colSpan={8} className="px-4 py-6 text-center text-slate-500">
                   No refunds.
                 </td>
               </tr>

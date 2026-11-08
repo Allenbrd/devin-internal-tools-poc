@@ -10,9 +10,12 @@ import { ForbiddenError, UnauthenticatedError, requirePermission } from "@/platf
 import { isValidIban, normalizeIban } from "@/platform/validation/iban";
 import {
   DECISION_BLOCK_MESSAGES,
+  REASON_CODE_REQUIRED_FROM,
   REFUND_CURRENCIES,
+  REFUND_REASON_CODES,
   checkDecision,
   parseAmountToMinor,
+  reasonCodeRequired,
   requiredApprovalsFor,
   statusAfterDecision,
 } from "./policy";
@@ -54,22 +57,28 @@ async function transition(tx: DbClient, refund: { id: string; version: number },
   if (count !== 1) throw new ConcurrentChangeError();
 }
 
-const requestSchema = z.object({
-  customerId: z.string().min(1, "Choose a customer").max(64),
-  amount: z
-    .string()
-    .trim()
-    .refine((v) => parseAmountToMinor(v) !== null, "Enter an amount between 0.01 and 1,000,000.00 (max 2 decimals)")
-    .transform((v) => parseAmountToMinor(v)!),
-  currency: z.enum(REFUND_CURRENCIES),
-  reason: z.string().trim().min(3, "Give a reason").max(500),
-  destinationIban: z
-    .string()
-    .trim()
-    .max(64)
-    .transform(normalizeIban)
-    .refine(isValidIban, "Invalid IBAN"),
-});
+const requestSchema = z
+  .object({
+    customerId: z.string().min(1, "Choose a customer").max(64),
+    amount: z
+      .string()
+      .trim()
+      .refine((v) => parseAmountToMinor(v) !== null, "Enter an amount between 0.01 and 1,000,000.00 (max 2 decimals)")
+      .transform((v) => parseAmountToMinor(v)!),
+    currency: z.enum(REFUND_CURRENCIES),
+    reason: z.string().trim().min(3, "Give a reason").max(500),
+    reasonCode: z.enum(REFUND_REASON_CODES, "Choose a valid reason code").optional(),
+    destinationIban: z
+      .string()
+      .trim()
+      .max(64)
+      .transform(normalizeIban)
+      .refine(isValidIban, "Invalid IBAN"),
+  })
+  .refine((v) => v.reasonCode || !reasonCodeRequired(v.amount), {
+    path: ["reasonCode"],
+    message: `Choose a reason code for refunds of ${REASON_CODE_REQUIRED_FROM} or more`,
+  });
 
 export async function requestRefund(_prev: RefundActionState, formData: FormData): Promise<RefundActionState> {
   const actor = await authorize(() => requirePermission("refunds:create", { onDenied: "throw" }));
@@ -80,6 +89,7 @@ export async function requestRefund(_prev: RefundActionState, formData: FormData
     amount: formData.get("amount") ?? "",
     currency: formData.get("currency"),
     reason: formData.get("reason") ?? "",
+    reasonCode: formData.get("reasonCode") || undefined,
     destinationIban: formData.get("destinationIban") ?? "",
   });
   if (!parsed.success) {
@@ -105,6 +115,7 @@ export async function requestRefund(_prev: RefundActionState, formData: FormData
           amountMinor: created.amountMinor,
           currency: created.currency,
           reason: created.reason,
+          reasonCode: created.reasonCode,
           destinationIban: created.destinationIban,
         },
       },
